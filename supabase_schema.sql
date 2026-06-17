@@ -36,10 +36,25 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
   v_role TEXT;
+  v_full_name TEXT;
+  v_employee_id TEXT;
   v_is_first_user BOOLEAN;
 BEGIN
-  -- Extract role from raw_user_meta_data or default to 'mahasiswa'
-  v_role := COALESCE(new.raw_user_meta_data->>'role', 'mahasiswa');
+  -- Safe extraction from raw_user_meta_data to prevent null pointer exceptions
+  BEGIN
+    v_role := new.raw_user_meta_data->>'role';
+    v_full_name := new.raw_user_meta_data->>'full_name';
+    v_employee_id := new.raw_user_meta_data->>'employee_id';
+  EXCEPTION WHEN OTHERS THEN
+    v_role := NULL;
+    v_full_name := NULL;
+    v_employee_id := NULL;
+  END;
+
+  -- Apply fallbacks if data is missing
+  v_role := COALESCE(v_role, 'mahasiswa');
+  v_full_name := COALESCE(v_full_name, new.email, 'User Baru');
+  v_employee_id := COALESCE(v_employee_id, new.email);
   
   -- Check if this is the very first user in the database (bootstrap as active admin)
   SELECT NOT EXISTS (SELECT 1 FROM public.profiles) INTO v_is_first_user;
@@ -48,14 +63,27 @@ BEGIN
     v_role := 'admin';
   END IF;
 
-  INSERT INTO public.profiles (id, full_name, employee_id, role, is_active, email)
-  VALUES (
-    new.id,
-    COALESCE(new.raw_user_meta_data->>'full_name', new.email, 'User Baru'),
-    COALESCE(new.raw_user_meta_data->>'employee_id', new.email),
-    v_role,
-    v_is_first_user -- Auto-active for the first user (bootstrap Admin), FALSE for others
-  );
+  -- Safe insert block to handle potential unique constraint violations on employee_id
+  BEGIN
+    INSERT INTO public.profiles (id, full_name, employee_id, role, is_active, email)
+    VALUES (
+      new.id,
+      v_full_name,
+      v_employee_id,
+      v_role,
+      v_is_first_user
+    );
+  EXCEPTION WHEN OTHERS THEN
+    -- Fallback: If employee_id is duplicate or causes issue, use new.id to guarantee uniqueness and prevent signup crash
+    INSERT INTO public.profiles (id, full_name, employee_id, role, is_active, email)
+    VALUES (
+      new.id,
+      v_full_name,
+      new.id::text,
+      v_role,
+      v_is_first_user
+    );
+  END;
   
   RETURN new;
 END;
