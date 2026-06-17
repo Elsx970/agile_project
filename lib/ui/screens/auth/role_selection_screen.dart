@@ -199,7 +199,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
           roleName: 'Mahasiswa',
           idFieldName: 'NPM',
           hintText: 'Masukkan NPM Anda',
-          demoTip: 'NPM: 2217051001  |  Sandi: mhs123',
           isNumericId: true,
           icon: Icons.school_outlined,
         );
@@ -209,7 +208,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
           roleName: 'Dosen',
           idFieldName: 'NIP',
           hintText: 'Masukkan NIP Anda',
-          demoTip: 'NIP: 19900101  |  Sandi: dosen123',
           isNumericId: true,
           icon: Icons.badge_outlined,
         );
@@ -219,7 +217,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
           roleName: 'Administrator',
           idFieldName: 'Username',
           hintText: 'Masukkan Username Admin',
-          demoTip: 'User: admin  |  Sandi: admin123',
           isNumericId: false,
           icon: Icons.person_outline,
         );
@@ -395,7 +392,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
     required String roleName,
     required String idFieldName,
     required String hintText,
-    required String demoTip,
     required bool isNumericId,
     required IconData icon,
   }) {
@@ -439,47 +435,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
               ],
             ),
             const Divider(height: 32),
-            
-            // Helper Tip for Demo
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.primaryColor.withOpacity(0.15)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, color: AppTheme.primaryColor, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Kredensial Pengujian (Demo):',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primaryColor,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          demoTip,
-                          style: GoogleFonts.montserrat(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
 
             // Identity Field (NPM / NIP / Username)
             TextFormField(

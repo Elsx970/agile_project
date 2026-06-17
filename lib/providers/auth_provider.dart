@@ -30,6 +30,43 @@ class AuthProvider extends ChangeNotifier {
   // Pending registration requests list
   final List<RegistrationRequest> _registrationRequests = [];
 
+  AuthProvider() {
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    if (AppConfig.useMockMode) return;
+
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      final user = Supabase.instance.client.auth.currentUser;
+
+      if (session != null && user != null) {
+        final profile = await Supabase.instance.client
+            .from('profiles')
+            .select()
+            .eq('id', user.id)
+            .single();
+
+        final isActive = profile['is_active'] as bool? ?? false;
+        if (isActive) {
+          _currentUser = User(
+            id: profile['id'],
+            name: profile['full_name'],
+            email: profile['email'] ?? user.email ?? '',
+            role: _parseRole(profile['role']),
+            token: session.accessToken,
+          );
+          notifyListeners();
+        } else {
+          await Supabase.instance.client.auth.signOut();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error restoring session: $e');
+    }
+  }
+
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
   bool get isGuest => false;

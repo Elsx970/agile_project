@@ -5,88 +5,10 @@ import '../models/aspiration.dart';
 import '../models/comment.dart';
 
 class ApiService {
-  // Simulated Local Database for Mock Mode
-  static final List<User> _mockUsers = [
-    User(id: '1', name: 'M. Anazky Putra Irwansya', email: 'anazky@unila.ac.id', role: UserRole.mahasiswa),
-    User(id: '2', name: 'Dr. Ir. Dyvta Avryansyah, M.T.', email: 'dyvta@unila.ac.id', role: UserRole.dosen),
-    User(id: '3', name: 'Talitha Dalilah Difa, S.Kom.', email: 'talitha@unila.ac.id', role: UserRole.tendik),
-    User(id: '4', name: 'Admin Kelompok 4', email: 'admin@unila.ac.id', role: UserRole.admin),
-  ];
-
-  static final List<Aspiration> _mockAspirations = [
-    Aspiration(
-      id: 'asp_1',
-      title: 'Fasilitas Lab Komputer Rusak',
-      description: 'AC di Lab Komputer 3 Gedung H Jurusan Teknik Elektro mati sejak 2 minggu lalu. Mahasiswa merasa sangat gerah saat praktikum, dan beberapa komputer mengalami overheat.',
-      category: 'Fasilitas',
-      userId: '1',
-      userName: 'M. Anazky Putra Irwansya',
-      userRole: 'Mahasiswa',
-      isAnonymous: false,
-      upvoteCount: 42,
-      upvotedByUserIds: ['2', '3'],
-      status: AspirationStatus.diperiksa,
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
-    ),
-    Aspiration(
-      id: 'asp_2',
-      title: 'Keterlambatan Input Nilai KHS',
-      description: 'Mohon untuk para dosen agar segera menginput nilai semester ganjil. Batas waktu KRS semester berikutnya sudah dekat, tapi nilai mata kuliah Pemrograman Mobile belum keluar.',
-      category: 'Akademik',
-      userId: '1',
-      userName: 'M. Anazky Putra Irwansya',
-      userRole: 'Mahasiswa',
-      isAnonymous: true,
-      upvoteCount: 15,
-      upvotedByUserIds: ['3'],
-      status: AspirationStatus.pending,
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-    ),
-    Aspiration(
-      id: 'asp_3',
-      title: 'Pelayanan Administrasi Jurusan Kurang Ramah',
-      description: 'Staf administrasi di loket pelayanan dekanat kurang ramah dan sering meninggalkan loket sebelum jam istirahat. Mohon dilakukan pembinaan.',
-      category: 'Layanan',
-      userId: '3',
-      userName: 'Talitha Dalilah Difa, S.Kom.',
-      userRole: 'Tenaga Kependidikan',
-      isAnonymous: false,
-      upvoteCount: 29,
-      upvotedByUserIds: ['1', '2'],
-      status: AspirationStatus.selesai,
-      createdAt: DateTime.now().subtract(const Duration(days: 10)),
-    ),
-  ];
-
-  static final List<Comment> _mockComments = [
-    Comment(
-      id: 'c_1',
-      aspirationId: 'asp_1',
-      userId: '2',
-      userName: 'Dr. Ir. Dyvta Avryansyah, M.T.',
-      userRole: 'Dosen',
-      content: 'Saya setuju, hal ini sudah saya sampaikan juga ke bagian prasarana fakultas. Semoga segera ditindaklanjuti.',
-      createdAt: DateTime.now().subtract(const Duration(days: 4)),
-    ),
-    Comment(
-      id: 'c_2',
-      aspirationId: 'asp_1',
-      userId: '4',
-      userName: 'Admin Kelompok 4',
-      userRole: 'Administrator',
-      content: 'Aspirasi telah diterima dan saat ini statusnya diubah menjadi DI PERIKSA. Tim teknisi akan memeriksa AC Lab 3 besok pagi.',
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
-    ),
-    Comment(
-      id: 'c_3',
-      aspirationId: 'asp_3',
-      userId: '4',
-      userName: 'Admin Kelompok 4',
-      userRole: 'Administrator',
-      content: 'Terima kasih atas masukannya. Bagian kepegawaian telah menegur staf yang bersangkutan dan pelayanan akan terus kami tingkatkan.',
-      createdAt: DateTime.now().subtract(const Duration(days: 8)),
-    ),
-  ];
+  // Simulated Local Database for Mock Mode (Empty for Production Setup)
+  static final List<User> _mockUsers = [];
+  static final List<Aspiration> _mockAspirations = [];
+  static final List<Comment> _mockComments = [];
 
 
   // --- AUTHENTICATION ---

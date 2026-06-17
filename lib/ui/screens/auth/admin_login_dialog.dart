@@ -100,7 +100,7 @@ class _AdminLoginDialogState extends State<AdminLoginDialog> {
                   controller: _usernameController,
                   decoration: const InputDecoration(
                     labelText: 'Username',
-                    hintText: 'admin',
+                    hintText: 'Masukkan username',
                     prefixIcon: Icon(Icons.person_outline, size: 20),
                   ),
                   validator: (value) {
@@ -118,7 +118,7 @@ class _AdminLoginDialogState extends State<AdminLoginDialog> {
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
                     labelText: 'Kata Sandi',
-                    hintText: 'admin123',
+                    hintText: 'Masukkan kata sandi',
                     prefixIcon: const Icon(Icons.lock_outline, size: 20),
                     suffixIcon: IconButton(
                       icon: Icon(
