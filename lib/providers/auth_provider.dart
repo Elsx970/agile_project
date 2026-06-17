@@ -22,39 +22,17 @@ class RegistrationRequest {
 }
 
 class AuthProvider extends ChangeNotifier {
-  // Default user is null on startup to prompt role selection screen
+  // Current logged in user profile
   User? _currentUser;
-
   bool _isLoading = false;
   String? _errorMessage;
 
   // Pending registration requests list
-  final List<RegistrationRequest> _registrationRequests = [
-    // Pre-populate with sample requests for demo
-    RegistrationRequest(
-      id: 'req_1',
-      name: 'Dr. Budi Utomo, M.T.',
-      idNumber: '19880415',
-      password: 'dosenbudi',
-      role: UserRole.dosen,
-      requestedAt: DateTime.now().subtract(const Duration(hours: 3)),
-    ),
-    RegistrationRequest(
-      id: 'req_2',
-      name: 'Andi Pratama',
-      idNumber: '2217051088',
-      password: 'mhsandi',
-      role: UserRole.mahasiswa,
-      requestedAt: DateTime.now().subtract(const Duration(minutes: 45)),
-    ),
-  ];
-
-  // Approved accounts list
-  final List<RegistrationRequest> _approvedAccounts = [];
+  final List<RegistrationRequest> _registrationRequests = [];
 
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
-  bool get isGuest => false; // Guest access is disabled; students must log in
+  bool get isGuest => false;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -78,9 +56,9 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       final response = await Supabase.instance.client
-          .from('registrations')
+          .from('profiles')
           .select()
-          .eq('is_approved', false)
+          .eq('is_active', false)
           .order('created_at', ascending: false);
 
       final List list = response as List;
@@ -88,9 +66,9 @@ class AuthProvider extends ChangeNotifier {
       for (var item in list) {
         _registrationRequests.add(RegistrationRequest(
           id: item['id']?.toString() ?? '',
-          name: item['name'] ?? '',
-          idNumber: item['id_number'] ?? '',
-          password: item['password'] ?? '',
+          name: item['full_name'] ?? '',
+          idNumber: item['employee_id'] ?? '',
+          password: '', // Secure: do not retrieve or store passwords in plaintext
           role: _parseRole(item['role']),
           requestedAt: item['created_at'] != null
               ? DateTime.parse(item['created_at'])
@@ -139,20 +117,31 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } else {
+      // Map role and ID numbers to standard student/lecturer emails
+      String email;
+      if (role == UserRole.mahasiswa) {
+        email = '$idNumber@student.unila.ac.id';
+      } else if (role == UserRole.dosen) {
+        email = '$idNumber@dosen.unila.ac.id';
+      } else if (role == UserRole.tendik) {
+        email = '$idNumber@tendik.unila.ac.id';
+      } else {
+        email = '$idNumber@admin.unila.ac.id';
+      }
+
       try {
-        final id = 'req_${DateTime.now().millisecondsSinceEpoch}';
-        await Supabase.instance.client.from('registrations').insert({
-          'id': id,
-          'name': name,
-          'id_number': idNumber,
-          'password': password,
-          'role': role.name,
-          'is_approved': false,
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        final response = await Supabase.instance.client.auth.signUp(
+          email: email,
+          password: password,
+          data: {
+            'full_name': name,
+            'employee_id': idNumber,
+            'role': role.name,
+          },
+        );
         _isLoading = false;
         notifyListeners();
-        return true;
+        return response.user != null;
       } catch (e) {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
         _isLoading = false;
@@ -166,8 +155,6 @@ class AuthProvider extends ChangeNotifier {
     if (AppConfig.useMockMode) {
       final idx = _registrationRequests.indexWhere((r) => r.id == id);
       if (idx != -1) {
-        final req = _registrationRequests[idx];
-        _approvedAccounts.add(req);
         _registrationRequests.removeAt(idx);
         notifyListeners();
       }
@@ -176,10 +163,10 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
       try {
-        await Supabase.instance.client
-            .from('registrations')
-            .update({'is_approved': true})
-            .eq('id', id);
+        // Execute the RPC function which activates the profile and confirms the user's email
+        await Supabase.instance.client.rpc('approve_user', params: {
+          'target_user_id': id,
+        });
 
         _registrationRequests.removeWhere((r) => r.id == id);
         _isLoading = false;
@@ -201,10 +188,10 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
       try {
-        await Supabase.instance.client
-            .from('registrations')
-            .delete()
-            .eq('id', id);
+        // Execute the RPC function which deletes the user from auth.users (cascades to profiles)
+        await Supabase.instance.client.rpc('reject_user', params: {
+          'target_user_id': id,
+        });
 
         _registrationRequests.removeWhere((r) => r.id == id);
         _isLoading = false;
@@ -225,7 +212,6 @@ class AuthProvider extends ChangeNotifier {
     if (AppConfig.useMockMode) {
       await Future.delayed(const Duration(milliseconds: 600));
 
-      // 1. Verify against default demo credentials
       if (npm.trim() == '2217051001' && password == 'mhs123') {
         _currentUser = User(
           id: 'mahasiswa_2217051001',
@@ -239,80 +225,29 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
 
-      // 2. Verify against approved list
-      final approvedIdx = _approvedAccounts.indexWhere(
-        (acc) => acc.role == UserRole.mahasiswa && acc.idNumber.trim() == npm.trim() && acc.password == password
-      );
-
-      if (approvedIdx != -1) {
-        final account = _approvedAccounts[approvedIdx];
-        _currentUser = User(
-          id: 'mahasiswa_${npm.trim()}',
-          name: account.name,
-          email: 'mahasiswa@unila.ac.id',
-          role: UserRole.mahasiswa,
-          token: 'mock_mahasiswa_jwt_token',
-        );
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      }
-
-      // 3. Check if account is still pending approval
-      final isPending = _registrationRequests.any(
-        (r) => r.role == UserRole.mahasiswa && r.idNumber.trim() == npm.trim()
-      );
-
-      if (isPending) {
-        _errorMessage = 'Akun Anda sedang menunggu persetujuan dari Administrator.';
-      } else {
-        _errorMessage = 'NPM atau kata sandi mahasiswa salah.';
-      }
-
+      _errorMessage = 'NPM atau kata sandi mahasiswa salah.';
       _isLoading = false;
       notifyListeners();
       return false;
     } else {
       try {
-        final response = await Supabase.instance.client
-            .from('registrations')
+        final email = '${npm.trim()}@student.unila.ac.id';
+        final authResponse = await Supabase.instance.client.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+
+        // Fetch user profile from database
+        final profile = await Supabase.instance.client
+            .from('profiles')
             .select()
-            .eq('id_number', npm.trim())
-            .eq('role', 'mahasiswa')
-            .maybeSingle();
+            .eq('id', authResponse.user!.id)
+            .single();
 
-        if (response == null) {
-          if (npm.trim() == '2217051001' && password == 'mhs123') {
-            _currentUser = User(
-              id: 'mahasiswa_2217051001',
-              name: 'Mahasiswa Unila',
-              email: 'mahasiswa@unila.ac.id',
-              role: UserRole.mahasiswa,
-              token: 'supabase_session_token_mhs',
-            );
-            _isLoading = false;
-            notifyListeners();
-            return true;
-          }
-          _errorMessage = 'NPM tidak terdaftar.';
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-
-        final isApproved = response['is_approved'] as bool? ?? false;
-        final dbPassword = response['password'] as String? ?? '';
-        final name = response['name'] as String? ?? 'Mahasiswa';
-        final id = response['id'] as String? ?? '';
-
-        if (dbPassword != password) {
-          _errorMessage = 'Kata sandi salah.';
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-
-        if (!isApproved) {
+        final isActive = profile['is_active'] as bool? ?? false;
+        if (!isActive) {
+          // Immediately sign out since account is not approved
+          await Supabase.instance.client.auth.signOut();
           _errorMessage = 'Akun Anda sedang menunggu persetujuan dari Administrator.';
           _isLoading = false;
           notifyListeners();
@@ -320,11 +255,11 @@ class AuthProvider extends ChangeNotifier {
         }
 
         _currentUser = User(
-          id: id,
-          name: name,
-          email: 'mahasiswa_${npm.trim()}@unila.ac.id',
-          role: UserRole.mahasiswa,
-          token: 'supabase_session_token_$id',
+          id: profile['id'],
+          name: profile['full_name'],
+          email: profile['email'] ?? email,
+          role: _parseRole(profile['role']),
+          token: authResponse.session?.accessToken ?? '',
         );
         _isLoading = false;
         notifyListeners();
@@ -346,7 +281,6 @@ class AuthProvider extends ChangeNotifier {
     if (AppConfig.useMockMode) {
       await Future.delayed(const Duration(milliseconds: 600));
 
-      // 1. Verify against default demo credentials
       if (nip.trim() == '19900101' && password == 'dosen123') {
         _currentUser = User(
           id: 'dosen_19900101',
@@ -360,80 +294,27 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
 
-      // 2. Verify against approved list
-      final approvedIdx = _approvedAccounts.indexWhere(
-        (acc) => acc.role == UserRole.dosen && acc.idNumber.trim() == nip.trim() && acc.password == password
-      );
-
-      if (approvedIdx != -1) {
-        final account = _approvedAccounts[approvedIdx];
-        _currentUser = User(
-          id: 'dosen_${nip.trim()}',
-          name: account.name,
-          email: 'dosen@unila.ac.id',
-          role: UserRole.dosen,
-          token: 'mock_dosen_jwt_token',
-        );
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      }
-
-      // 3. Check if account is still pending approval
-      final isPending = _registrationRequests.any(
-        (r) => r.role == UserRole.dosen && r.idNumber.trim() == nip.trim()
-      );
-
-      if (isPending) {
-        _errorMessage = 'Akun Anda sedang menunggu persetujuan dari Administrator.';
-      } else {
-        _errorMessage = 'NIP atau kata sandi dosen salah.';
-      }
-
+      _errorMessage = 'NIP atau kata sandi dosen salah.';
       _isLoading = false;
       notifyListeners();
       return false;
     } else {
       try {
-        final response = await Supabase.instance.client
-            .from('registrations')
+        final email = '${nip.trim()}@dosen.unila.ac.id';
+        final authResponse = await Supabase.instance.client.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+
+        final profile = await Supabase.instance.client
+            .from('profiles')
             .select()
-            .eq('id_number', nip.trim())
-            .eq('role', 'dosen')
-            .maybeSingle();
+            .eq('id', authResponse.user!.id)
+            .single();
 
-        if (response == null) {
-          if (nip.trim() == '19900101' && password == 'dosen123') {
-            _currentUser = User(
-              id: 'dosen_19900101',
-              name: 'Dosen Unila',
-              email: 'dosen@unila.ac.id',
-              role: UserRole.dosen,
-              token: 'supabase_session_token_dosen',
-            );
-            _isLoading = false;
-            notifyListeners();
-            return true;
-          }
-          _errorMessage = 'NIP tidak terdaftar.';
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-
-        final isApproved = response['is_approved'] as bool? ?? false;
-        final dbPassword = response['password'] as String? ?? '';
-        final name = response['name'] as String? ?? 'Dosen';
-        final id = response['id'] as String? ?? '';
-
-        if (dbPassword != password) {
-          _errorMessage = 'Kata sandi salah.';
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-
-        if (!isApproved) {
+        final isActive = profile['is_active'] as bool? ?? false;
+        if (!isActive) {
+          await Supabase.instance.client.auth.signOut();
           _errorMessage = 'Akun Anda sedang menunggu persetujuan dari Administrator.';
           _isLoading = false;
           notifyListeners();
@@ -441,11 +322,11 @@ class AuthProvider extends ChangeNotifier {
         }
 
         _currentUser = User(
-          id: id,
-          name: name,
-          email: 'dosen_${nip.trim()}@unila.ac.id',
-          role: UserRole.dosen,
-          token: 'supabase_session_token_$id',
+          id: profile['id'],
+          name: profile['full_name'],
+          email: profile['email'] ?? email,
+          role: _parseRole(profile['role']),
+          token: authResponse.session?.accessToken ?? '',
         );
         _isLoading = false;
         notifyListeners();
@@ -464,28 +345,90 @@ class AuthProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
-    await Future.delayed(const Duration(milliseconds: 600));
+    if (AppConfig.useMockMode) {
+      await Future.delayed(const Duration(milliseconds: 600));
 
-    if (username.trim() == 'admin' && password == 'admin123') {
-      _currentUser = User(
-        id: 'admin',
-        name: 'Admin Kelompok 4',
-        email: 'admin@unila.ac.id',
-        role: UserRole.admin,
-        token: 'mock_admin_jwt_token',
-      );
-      _isLoading = false;
-      notifyListeners();
-      return true;
-    } else {
+      if (username.trim() == 'admin' && password == 'admin123') {
+        _currentUser = User(
+          id: 'admin',
+          name: 'Admin Kelompok 4',
+          email: 'admin@unila.ac.id',
+          role: UserRole.admin,
+          token: 'mock_admin_jwt_token',
+        );
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+
       _errorMessage = 'Username atau password admin salah.';
       _isLoading = false;
       notifyListeners();
       return false;
+    } else {
+      try {
+        String email = username.trim();
+        if (email == 'admin') {
+          email = 'admin@unila.ac.id';
+        } else if (!email.contains('@')) {
+          email = '$email@admin.unila.ac.id';
+        }
+
+        final authResponse = await Supabase.instance.client.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+
+        final profile = await Supabase.instance.client
+            .from('profiles')
+            .select()
+            .eq('id', authResponse.user!.id)
+            .single();
+
+        final role = profile['role'] as String? ?? '';
+        final isActive = profile['is_active'] as bool? ?? false;
+
+        if (role != 'admin') {
+          await Supabase.instance.client.auth.signOut();
+          _errorMessage = 'Akun ini bukan Administrator.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
+        if (!isActive) {
+          await Supabase.instance.client.auth.signOut();
+          _errorMessage = 'Akun Administrator Anda belum diaktifkan.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
+        _currentUser = User(
+          id: profile['id'],
+          name: profile['full_name'],
+          email: profile['email'] ?? email,
+          role: UserRole.admin,
+          token: authResponse.session?.accessToken ?? '',
+        );
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (e) {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
     }
   }
 
-  void logout() {
+  void logout() async {
+    if (!AppConfig.useMockMode) {
+      try {
+        await Supabase.instance.client.auth.signOut();
+      } catch (_) {}
+    }
     _currentUser = null;
     _errorMessage = null;
     notifyListeners();

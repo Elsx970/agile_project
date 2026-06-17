@@ -1,28 +1,120 @@
--- SQL Schema for AspiraNila Supabase Database Setup
--- You can run these commands directly in the Supabase SQL Editor
+-- SQL Schema for AspiraNila Supabase Database Setup (S-CORE Style)
+-- You can copy and run these commands directly in the Supabase SQL Editor
 
--- 1. Table for Registrations and Approved Accounts
-CREATE TABLE IF NOT EXISTS public.registrations (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    id_number TEXT UNIQUE NOT NULL, -- NPM for students, NIP for lecturers
-    password TEXT NOT NULL,
+-- Clean up existing tables, functions, and triggers to start fresh
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+DROP FUNCTION IF EXISTS public.approve_user(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.reject_user(UUID) CASCADE;
+DROP TABLE IF EXISTS public.comments CASCADE;
+DROP TABLE IF EXISTS public.aspirations CASCADE;
+DROP TABLE IF EXISTS public.profiles CASCADE;
+DROP TABLE IF EXISTS public.registrations CASCADE;
+
+-- 1. Create Profiles Table (extends auth.users)
+CREATE TABLE public.profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    full_name TEXT NOT NULL,
+    employee_id TEXT UNIQUE NOT NULL, -- NPM (Mahasiswa) or NIP (Dosen/Tendik)
     role TEXT NOT NULL CHECK (role IN ('mahasiswa', 'dosen', 'tendik', 'admin')),
-    is_approved BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    is_active BOOLEAN NOT NULL DEFAULT FALSE, -- FALSE = Pending approval
+    email TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Enable Row Level Security (RLS) or disable as needed for direct testing
-ALTER TABLE public.registrations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read-write for demo" ON public.registrations FOR ALL USING (true) WITH CHECK (true);
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read for all profiles" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Allow users to update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Allow admin manage all profiles" ON public.profiles FOR ALL USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
 
--- 2. Table for Aspirations
-CREATE TABLE IF NOT EXISTS public.aspirations (
+-- 2. Create Trigger Function to automatically handle new Auth signups
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+DECLARE
+  v_role TEXT;
+  v_is_first_user BOOLEAN;
+BEGIN
+  -- Extract role from raw_user_meta_data or default to 'mahasiswa'
+  v_role := COALESCE(new.raw_user_meta_data->>'role', 'mahasiswa');
+  
+  -- Check if this is the very first user in the database (bootstrap as active admin)
+  SELECT NOT EXISTS (SELECT 1 FROM public.profiles) INTO v_is_first_user;
+  
+  IF v_is_first_user THEN
+    v_role := 'admin';
+  END IF;
+
+  INSERT INTO public.profiles (id, full_name, employee_id, role, is_active, email)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'full_name', new.email, 'User Baru'),
+    COALESCE(new.raw_user_meta_data->>'employee_id', new.email),
+    v_role,
+    v_is_first_user -- Auto-active for the first user (bootstrap Admin), FALSE for others
+  );
+  
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Create the trigger on auth.users
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 3. Create Admin Action RPC: Approve User
+CREATE OR REPLACE FUNCTION public.approve_user(target_user_id UUID)
+RETURNS VOID AS $$
+BEGIN
+  -- Check if caller is active Admin
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role = 'admin' AND is_active = true
+  ) THEN
+    RAISE EXCEPTION 'Unauthorized: Hanya Admin aktif yang dapat menyetujui akun.';
+  END IF;
+
+  -- Set active in profiles
+  UPDATE public.profiles
+  SET is_active = TRUE, updated_at = NOW()
+  WHERE id = target_user_id;
+
+  -- Confirm email in auth.users so they can log in immediately without verification email
+  UPDATE auth.users
+  SET email_confirmed_at = COALESCE(email_confirmed_at, NOW())
+  WHERE id = target_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth;
+
+-- 4. Create Admin Action RPC: Reject/Delete User
+CREATE OR REPLACE FUNCTION public.reject_user(target_user_id UUID)
+RETURNS VOID AS $$
+BEGIN
+  -- Check if caller is active Admin
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role = 'admin' AND is_active = true
+  ) THEN
+    RAISE EXCEPTION 'Unauthorized: Hanya Admin aktif yang dapat menolak akun.';
+  END IF;
+
+  -- Delete from auth.users (which cascades to profiles)
+  DELETE FROM auth.users WHERE id = target_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth;
+
+
+-- 5. Table for Aspirations
+CREATE TABLE public.aspirations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     category TEXT NOT NULL,
-    user_id TEXT NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
     user_name TEXT NOT NULL,
     user_role TEXT NOT NULL,
     is_anonymous BOOLEAN DEFAULT FALSE,
@@ -33,13 +125,18 @@ CREATE TABLE IF NOT EXISTS public.aspirations (
 );
 
 ALTER TABLE public.aspirations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read-write for demo" ON public.aspirations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow read for all aspirations" ON public.aspirations FOR SELECT USING (true);
+CREATE POLICY "Allow create for authenticated users" ON public.aspirations FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow update for authenticated users" ON public.aspirations FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow delete for admin or owner" ON public.aspirations FOR DELETE USING (
+  auth.uid() = user_id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
 
--- 3. Table for Comments / Discussion Thread
-CREATE TABLE IF NOT EXISTS public.comments (
+-- 6. Table for Comments / Discussion Thread
+CREATE TABLE public.comments (
     id TEXT PRIMARY KEY,
     aspiration_id TEXT REFERENCES public.aspirations(id) ON DELETE CASCADE,
-    user_id TEXT NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
     user_name TEXT NOT NULL,
     user_role TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -47,15 +144,8 @@ CREATE TABLE IF NOT EXISTS public.comments (
 );
 
 ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read-write for demo" ON public.comments FOR ALL USING (true) WITH CHECK (true);
-
--- --- Mock Data for Testing Setup ---
-INSERT INTO public.registrations (id, name, id_number, password, role, is_approved) VALUES
-('req_1', 'Dr. Budi Utomo, M.T.', '19880415', 'dosenbudi', 'dosen', FALSE),
-('req_2', 'Andi Pratama', '2217051088', 'mhsandi', 'mahasiswa', FALSE)
-ON CONFLICT (id_number) DO NOTHING;
-
-INSERT INTO public.aspirations (id, title, description, category, user_id, user_name, user_role, is_anonymous, upvote_count, upvoted_by_user_ids, status) VALUES
-('asp_1', 'Fasilitas Lab Komputer Rusak', 'AC di Lab Komputer 3 Gedung H Jurusan Teknik Elektro mati sejak 2 minggu lalu. Mahasiswa merasa sangat gerah saat praktikum, dan beberapa komputer mengalami overheat.', 'Fasilitas', '1', 'M. Anazky Putra Irwansya', 'Mahasiswa', FALSE, 42, ARRAY['2', '3'], 'diperiksa'),
-('asp_2', 'Keterlambatan Input Nilai KHS', 'Mohon untuk para dosen agar segera menginput nilai semester ganjil. Batas waktu KRS semester berikutnya sudah dekat, tapi nilai mata kuliah Pemrograman Mobile belum keluar.', 'Akademik', '1', 'M. Anazky Putra Irwansya', 'Mahasiswa', TRUE, 15, ARRAY['3'], 'pending')
-ON CONFLICT (id) DO NOTHING;
+CREATE POLICY "Allow read for all comments" ON public.comments FOR SELECT USING (true);
+CREATE POLICY "Allow create for authenticated users" ON public.comments FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow update/delete for owner or admin" ON public.comments FOR ALL USING (
+  auth.uid() = user_id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
