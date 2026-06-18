@@ -12,6 +12,8 @@ class Aspiration {
   final int upvoteCount;
   final List<String> upvotedByUserIds;
   final AspirationStatus status;
+  final String? imageUrl;
+  final String? resolvedImageUrl;
   final DateTime createdAt;
 
   Aspiration({
@@ -26,6 +28,8 @@ class Aspiration {
     required this.upvoteCount,
     required this.upvotedByUserIds,
     required this.status,
+    this.imageUrl,
+    this.resolvedImageUrl,
     required this.createdAt,
   });
 
@@ -42,6 +46,8 @@ class Aspiration {
       upvoteCount: json['upvote_count'] ?? 0,
       upvotedByUserIds: List<String>.from(json['upvoted_by_user_ids'] ?? []),
       status: _parseStatus(json['status']),
+      imageUrl: json['image_url'],
+      resolvedImageUrl: json['resolved_image_url'],
       createdAt: json['created_at'] != null 
           ? DateTime.parse(json['created_at']) 
           : DateTime.now(),
@@ -61,6 +67,8 @@ class Aspiration {
       'upvote_count': upvoteCount,
       'upvoted_by_user_ids': upvotedByUserIds,
       'status': status.name,
+      'image_url': imageUrl,
+      'resolved_image_url': resolvedImageUrl,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -96,6 +104,8 @@ class Aspiration {
     int? upvoteCount,
     List<String>? upvotedByUserIds,
     AspirationStatus? status,
+    String? imageUrl,
+    String? resolvedImageUrl,
     DateTime? createdAt,
   }) {
     return Aspiration(
@@ -110,6 +120,8 @@ class Aspiration {
       upvoteCount: upvoteCount ?? this.upvoteCount,
       upvotedByUserIds: upvotedByUserIds ?? this.upvotedByUserIds,
       status: status ?? this.status,
+      imageUrl: imageUrl ?? this.imageUrl,
+      resolvedImageUrl: resolvedImageUrl ?? this.resolvedImageUrl,
       createdAt: createdAt ?? this.createdAt,
     );
   }

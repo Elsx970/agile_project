@@ -110,6 +110,7 @@ class ApiService {
     required String category,
     required bool isAnonymous,
     required User currentUser,
+    String? imageUrl,
   }) async {
     if (AppConfig.useMockMode) {
       await Future.delayed(const Duration(milliseconds: 700));
@@ -125,6 +126,7 @@ class ApiService {
         upvoteCount: 0,
         upvotedByUserIds: [],
         status: AspirationStatus.pending,
+        imageUrl: imageUrl,
         createdAt: DateTime.now(),
       );
       _mockAspirations.add(newAspiration);
@@ -143,6 +145,7 @@ class ApiService {
           upvoteCount: 0,
           upvotedByUserIds: [],
           status: AspirationStatus.pending,
+          imageUrl: imageUrl,
           createdAt: DateTime.now(),
         );
 
@@ -219,24 +222,33 @@ class ApiService {
   static Future<Aspiration> updateStatus(
     String token,
     String aspirationId,
-    AspirationStatus status,
-  ) async {
+    AspirationStatus status, {
+    String? resolvedImageUrl,
+  }) async {
     if (AppConfig.useMockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
       final index = _mockAspirations.indexWhere((a) => a.id == aspirationId);
       if (index != -1) {
-        final updated = _mockAspirations[index].copyWith(status: status);
+        final updated = _mockAspirations[index].copyWith(
+          status: status,
+          resolvedImageUrl: resolvedImageUrl,
+        );
         _mockAspirations[index] = updated;
         return updated;
       }
       throw Exception('Aspirasi tidak ditemukan.');
     } else {
       try {
+        final updateData = <String, dynamic>{
+          'status': status.name,
+        };
+        if (resolvedImageUrl != null) {
+          updateData['resolved_image_url'] = resolvedImageUrl;
+        }
+
         final response = await Supabase.instance.client
             .from('aspirations')
-            .update({
-              'status': status.name,
-            })
+            .update(updateData)
             .eq('id', aspirationId)
             .select()
             .single();
@@ -277,6 +289,7 @@ class ApiService {
     required String aspirationId,
     required String content,
     required User currentUser,
+    String? parentId,
   }) async {
     if (AppConfig.useMockMode) {
       await Future.delayed(const Duration(milliseconds: 400));
@@ -287,6 +300,9 @@ class ApiService {
         userName: currentUser.name,
         userRole: currentUser.roleDisplayName,
         content: content,
+        parentId: parentId,
+        likedByUserIds: [],
+        dislikedByUserIds: [],
         createdAt: DateTime.now(),
       );
       _mockComments.add(newComment);
@@ -300,6 +316,9 @@ class ApiService {
           userName: currentUser.name,
           userRole: currentUser.roleDisplayName,
           content: content,
+          parentId: parentId,
+          likedByUserIds: [],
+          dislikedByUserIds: [],
           createdAt: DateTime.now(),
         );
 
@@ -307,6 +326,93 @@ class ApiService {
         return newComment;
       } catch (e) {
         throw Exception('Gagal menambahkan komentar ke Supabase: $e');
+      }
+    }
+  }
+
+  static Future<Comment> toggleCommentReaction(
+    String token,
+    String commentId,
+    String userId,
+    bool isLike,
+  ) async {
+    if (AppConfig.useMockMode) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      final index = _mockComments.indexWhere((c) => c.id == commentId);
+      if (index != -1) {
+        final comment = _mockComments[index];
+        List<String> likes = List<String>.from(comment.likedByUserIds);
+        List<String> dislikes = List<String>.from(comment.dislikedByUserIds);
+
+        if (isLike) {
+          if (likes.contains(userId)) {
+            likes.remove(userId);
+          } else {
+            likes.add(userId);
+            dislikes.remove(userId);
+          }
+        } else {
+          if (dislikes.contains(userId)) {
+            dislikes.remove(userId);
+          } else {
+            dislikes.add(userId);
+            likes.remove(userId);
+          }
+        }
+
+        final updated = comment.copyWith(
+          likeCount: likes.length,
+          likedByUserIds: likes,
+          dislikeCount: dislikes.length,
+          dislikedByUserIds: dislikes,
+        );
+        _mockComments[index] = updated;
+        return updated;
+      }
+      throw Exception('Komentar tidak ditemukan.');
+    } else {
+      try {
+        final data = await Supabase.instance.client
+            .from('comments')
+            .select()
+            .eq('id', commentId)
+            .single();
+
+        final comment = Comment.fromJson(data);
+        List<String> likes = List<String>.from(comment.likedByUserIds);
+        List<String> dislikes = List<String>.from(comment.dislikedByUserIds);
+
+        if (isLike) {
+          if (likes.contains(userId)) {
+            likes.remove(userId);
+          } else {
+            likes.add(userId);
+            dislikes.remove(userId);
+          }
+        } else {
+          if (dislikes.contains(userId)) {
+            dislikes.remove(userId);
+          } else {
+            dislikes.add(userId);
+            likes.remove(userId);
+          }
+        }
+
+        final response = await Supabase.instance.client
+            .from('comments')
+            .update({
+              'like_count': likes.length,
+              'liked_by_user_ids': likes,
+              'dislike_count': dislikes.length,
+              'disliked_by_user_ids': dislikes,
+            })
+            .eq('id', commentId)
+            .select()
+            .single();
+
+        return Comment.fromJson(response);
+      } catch (e) {
+        throw Exception('Gagal mengubah reaksi komentar di Supabase: $e');
       }
     }
   }

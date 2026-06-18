@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase, FileOptions;
+import '../core/config.dart';
 import '../models/aspiration.dart';
 import '../models/comment.dart';
 import '../models/user.dart';
@@ -49,6 +51,7 @@ class AspirationProvider extends ChangeNotifier {
     required String category,
     required bool isAnonymous,
     required User currentUser,
+    String? imageUrl,
   }) async {
     _isSubmitting = true;
     _errorMessage = null;
@@ -62,6 +65,7 @@ class AspirationProvider extends ChangeNotifier {
         category: category,
         isAnonymous: isAnonymous,
         currentUser: currentUser,
+        imageUrl: imageUrl,
       );
       
       // Add to local list at the beginning (newest first)
@@ -144,6 +148,7 @@ class AspirationProvider extends ChangeNotifier {
     required String aspirationId,
     required String content,
     required User currentUser,
+    String? parentId,
   }) async {
     _errorMessage = null;
     
@@ -153,6 +158,7 @@ class AspirationProvider extends ChangeNotifier {
         aspirationId: aspirationId,
         content: content,
         currentUser: currentUser,
+        parentId: parentId,
       );
 
       final list = _commentsByAspirationId[aspirationId] ?? [];
@@ -172,11 +178,17 @@ class AspirationProvider extends ChangeNotifier {
     required String token,
     required String aspirationId,
     required AspirationStatus newStatus,
+    String? resolvedImageUrl,
   }) async {
     _errorMessage = null;
 
     try {
-      final updated = await ApiService.updateStatus(token, aspirationId, newStatus);
+      final updated = await ApiService.updateStatus(
+        token,
+        aspirationId,
+        newStatus,
+        resolvedImageUrl: resolvedImageUrl,
+      );
       
       // Update in our local lists
       final index = _aspirations.indexWhere((a) => a.id == aspirationId);
@@ -189,6 +201,98 @@ class AspirationProvider extends ChangeNotifier {
       _errorMessage = e.toString().replaceFirst('Exception: ', '');
       notifyListeners();
       return false;
+    }
+  }
+
+  // Upload image to Supabase Storage and return public URL
+  Future<String?> uploadImage(dynamic pickedFile) async {
+    if (AppConfig.useMockMode) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      return 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=800&q=80';
+    }
+
+    try {
+      final bytes = await pickedFile.readAsBytes();
+      final fileName = 'asp_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      
+      await Supabase.instance.client.storage
+          .from('aspirations')
+          .uploadBinary(
+            fileName, 
+            bytes,
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
+          );
+          
+      final publicUrl = Supabase.instance.client.storage
+          .from('aspirations')
+          .getPublicUrl(fileName);
+          
+      return publicUrl;
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      throw Exception('Gagal mengunggah berkas: $e');
+    }
+  }
+
+  // Toggle comment reaction (like/dislike)
+  Future<void> toggleCommentReaction({
+    required String token,
+    required String commentId,
+    required String aspirationId,
+    required String userId,
+    required bool isLike,
+  }) async {
+    try {
+      // Optimistic UI Update for instant feedback
+      final list = _commentsByAspirationId[aspirationId] ?? [];
+      final index = list.indexWhere((c) => c.id == commentId);
+      if (index != -1) {
+        final comment = list[index];
+        List<String> likes = List<String>.from(comment.likedByUserIds);
+        List<String> dislikes = List<String>.from(comment.dislikedByUserIds);
+
+        if (isLike) {
+          if (likes.contains(userId)) {
+            likes.remove(userId);
+          } else {
+            likes.add(userId);
+            dislikes.remove(userId);
+          }
+        } else {
+          if (dislikes.contains(userId)) {
+            dislikes.remove(userId);
+          } else {
+            dislikes.add(userId);
+            likes.remove(userId);
+          }
+        }
+
+        list[index] = comment.copyWith(
+          likeCount: likes.length,
+          likedByUserIds: likes,
+          dislikeCount: dislikes.length,
+          dislikedByUserIds: dislikes,
+        );
+        notifyListeners();
+      }
+
+      // Real network call
+      final updatedComment = await ApiService.toggleCommentReaction(
+        token,
+        commentId,
+        userId,
+        isLike,
+      );
+
+      // Sync local list with network response
+      final idx = list.indexWhere((c) => c.id == commentId);
+      if (idx != -1) {
+        list[idx] = updatedComment;
+        notifyListeners();
+      }
+    } catch (e) {
+      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
     }
   }
 }

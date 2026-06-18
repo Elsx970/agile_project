@@ -59,11 +59,17 @@ class AuthProvider extends ChangeNotifier {
           );
           notifyListeners();
         } else {
-          await Supabase.instance.client.auth.signOut();
+          await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
         }
       }
     } catch (e) {
       debugPrint('Error restoring session: $e');
+      // Clear stale/invalid session from storage to prevent repeated errors
+      try {
+        await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
+      } catch (_) {}
+      _currentUser = null;
+      notifyListeners();
     }
   }
 
@@ -284,7 +290,7 @@ class AuthProvider extends ChangeNotifier {
         final isActive = profile['is_active'] as bool? ?? false;
         if (!isActive) {
           // Immediately sign out since account is not approved
-          await Supabase.instance.client.auth.signOut();
+          await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
           _errorMessage = 'Akun Anda sedang menunggu persetujuan dari Administrator.';
           _isLoading = false;
           notifyListeners();
@@ -301,6 +307,15 @@ class AuthProvider extends ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         return true;
+      } on AuthException catch (e) {
+        if (e.message.contains('Invalid login credentials') || e.code == 'invalid_credentials') {
+          _errorMessage = 'NPM atau kata sandi salah, atau akun belum terdaftar.';
+        } else {
+          _errorMessage = e.message;
+        }
+        _isLoading = false;
+        notifyListeners();
+        return false;
       } catch (e) {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
         _isLoading = false;
@@ -351,7 +366,7 @@ class AuthProvider extends ChangeNotifier {
 
         final isActive = profile['is_active'] as bool? ?? false;
         if (!isActive) {
-          await Supabase.instance.client.auth.signOut();
+          await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
           _errorMessage = 'Akun Anda sedang menunggu persetujuan dari Administrator.';
           _isLoading = false;
           notifyListeners();
@@ -368,6 +383,15 @@ class AuthProvider extends ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         return true;
+      } on AuthException catch (e) {
+        if (e.message.contains('Invalid login credentials') || e.code == 'invalid_credentials') {
+          _errorMessage = 'NIP atau kata sandi salah, atau akun belum terdaftar.';
+        } else {
+          _errorMessage = e.message;
+        }
+        _isLoading = false;
+        notifyListeners();
+        return false;
       } catch (e) {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
         _isLoading = false;
@@ -426,7 +450,7 @@ class AuthProvider extends ChangeNotifier {
         final isActive = profile['is_active'] as bool? ?? false;
 
         if (role != 'admin') {
-          await Supabase.instance.client.auth.signOut();
+          await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
           _errorMessage = 'Akun ini bukan Administrator.';
           _isLoading = false;
           notifyListeners();
@@ -434,7 +458,7 @@ class AuthProvider extends ChangeNotifier {
         }
 
         if (!isActive) {
-          await Supabase.instance.client.auth.signOut();
+          await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
           _errorMessage = 'Akun Administrator Anda belum diaktifkan.';
           _isLoading = false;
           notifyListeners();
@@ -451,6 +475,15 @@ class AuthProvider extends ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         return true;
+      } on AuthException catch (e) {
+        if (e.message.contains('Invalid login credentials') || e.code == 'invalid_credentials') {
+          _errorMessage = 'Username atau kata sandi salah, atau akun belum terdaftar.';
+        } else {
+          _errorMessage = e.message;
+        }
+        _isLoading = false;
+        notifyListeners();
+        return false;
       } catch (e) {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
         _isLoading = false;

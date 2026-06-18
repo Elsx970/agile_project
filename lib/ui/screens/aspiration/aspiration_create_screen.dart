@@ -1,4 +1,6 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme.dart';
 import '../../../models/user.dart';
@@ -21,8 +23,13 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
   String _selectedCategory = 'Akademik';
   UserRole _selectedGuestRole = UserRole.mahasiswa;
   bool _isAnonymous = false;
+  
+  XFile? _selectedImage;
+  Uint8List? _imageBytes;
+  bool _isUploadingImage = false;
 
   final List<String> _categories = ['Akademik', 'Fasilitas', 'Layanan', 'Lainnya'];
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -30,6 +37,29 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
     _descriptionController.dispose();
     _nameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _selectedImage = image;
+          _imageBytes = bytes;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memilih gambar: $e'),
+          backgroundColor: AppTheme.dangerColor,
+        ),
+      );
+    }
   }
 
   void _submitForm() async {
@@ -57,6 +87,28 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
         postUser = auth.currentUser!;
       }
 
+      setState(() {
+        _isUploadingImage = true;
+      });
+
+      String? imageUrl;
+      if (_selectedImage != null) {
+        try {
+          imageUrl = await provider.uploadImage(_selectedImage);
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Gagal mengunggah gambar pendukung: ${e.toString().replaceFirst('Exception: ', '')}'),
+              backgroundColor: AppTheme.dangerColor,
+            ),
+          );
+          setState(() {
+            _isUploadingImage = false;
+          });
+          return;
+        }
+      }
+
       final success = await provider.createAspiration(
         token: auth.currentUser?.token ?? '',
         title: _titleController.text.trim(),
@@ -64,7 +116,12 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
         category: _selectedCategory,
         isAnonymous: _isAnonymous,
         currentUser: postUser,
+        imageUrl: imageUrl,
       );
+
+      setState(() {
+        _isUploadingImage = false;
+      });
 
       if (success && mounted) {
         showDialog(
@@ -113,6 +170,8 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
       _selectedCategory = 'Akademik';
       _selectedGuestRole = UserRole.mahasiswa;
       _isAnonymous = false;
+      _selectedImage = null;
+      _imageBytes = null;
     });
   }
 
@@ -256,7 +315,131 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
+
+                      // Image Picker Attachment UI
+                      const Text(
+                        'Lampiran Gambar (Opsional)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _selectedImage == null
+                          ? InkWell(
+                              onTap: _pickImage,
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.add_photo_alternate_outlined,
+                                      color: AppTheme.primaryColor.withOpacity(0.7),
+                                      size: 32,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Pilih Gambar Pendukung',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Format JPG, PNG (Maks. 5MB)',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : Container(
+                              height: 160,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: Stack(
+                                  children: [
+                                    Positioned.fill(
+                                      child: Image.memory(
+                                        _imageBytes!,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    Positioned.fill(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [Colors.transparent, Colors.black.withOpacity(0.5)],
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      left: 12,
+                                      bottom: 12,
+                                      right: 50,
+                                      child: Text(
+                                        _selectedImage!.name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: InkWell(
+                                        onTap: () {
+                                          setState(() {
+                                            _selectedImage = null;
+                                            _imageBytes = null;
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.delete_outline,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                      const SizedBox(height: 16),
 
                       // Anonymous Switch inside styled box
                       Container(
@@ -343,8 +526,20 @@ class _AspirationCreateScreenState extends State<AspirationCreateScreen> {
               const SizedBox(height: 24),
 
               // Submit Button
-              provider.isSubmitting
-                  ? const Center(child: CircularProgressIndicator())
+              (provider.isSubmitting || _isUploadingImage)
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isUploadingImage ? 'Mengunggah gambar pendukung...' : 'Mengirim aspirasi...',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    )
                   : ElevatedButton.icon(
                       onPressed: _submitForm,
                       style: ElevatedButton.styleFrom(
